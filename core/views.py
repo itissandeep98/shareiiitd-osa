@@ -1,4 +1,5 @@
 import json
+from datetime import datetime
 
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
@@ -97,7 +98,10 @@ class UserList(APIView):
     permission_classes = (permissions.AllowAny,)
 
     def post(self, request, format=None):
-        serializer = UserSerializerWithToken(data=request.data)
+        serializer = UserSerializerWithToken(
+            data={"username_osa": request.data['username'] +
+                  "-" + str(datetime.now().date()), **request.data}
+        )
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
