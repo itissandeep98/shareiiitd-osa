@@ -77,8 +77,12 @@ def EditProfileView(request):
     username = post_data['username']
     first_name = post_data['first_name']
     last_name = post_data['last_name']
+    if not request.user.is_verified:
+        return Response({}, status=status.HTTP_401_UNAUTHORIZED)
     try:
-        request.user.username = username
+        if request.user.username != username:
+            request.user.username = username
+            request.user.is_verified = False
         request.user.first_name = first_name
         request.user.last_name = last_name
         request.user.save()
@@ -98,11 +102,55 @@ class UserList(APIView):
     permission_classes = (permissions.AllowAny,)
 
     def post(self, request, format=None):
+        username = request.data['username']
         serializer = UserSerializerWithToken(
-            data={"username_osa": request.data['username'] +
-                  "-" + str(datetime.now().date()), **request.data}
+            data={"username_osa": username +
+                  "-" + str(datetime.now().date()), **request.data,
+                  "is_verified": False}
         )
         if serializer.is_valid():
             serializer.save()
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def ResendEmailView(request):
+    """
+    Send a verify email token to user email.
+    """
+
+    username = json.loads(request.body)['username']
+    try:
+        user = User.objects.get(username=username)
+        token = default_token_generator.make_token(user)
+        send_mail(subject="Account verification for OSA IIITD",
+                  message="Your token is " + token, recipient_list=[user.username], from_email='')
+    except Exception as e:
+        return Response(e.__str__())
+    return Response()
+
+
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def VerifyEmailView(request):
+    """
+    Verify email for user using token.
+    """
+
+    post_data = json.loads(request.body)
+    username = post_data['username']
+    token = post_data['token']
+    try:
+        user = User.objects.get(username=username)
+        if default_token_generator.check_token(user, token):
+            user.is_verified = True
+            user.save()
+            serializer = UserSerializer(user)
+            return Response(serializer.data, status=status.HTTP_200_OK)
+        else:
+            raise Exception("Invalid token!")
+    except Exception as e:
+        return Response(e.__str__())
+    return Response()
